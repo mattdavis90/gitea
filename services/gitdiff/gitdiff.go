@@ -1204,6 +1204,25 @@ func GetDiffRangeWithWhitespaceBehavior(repoPath, beforeCommitID, afterCommitID 
 	// FIXME: graceful: These commands should likely have a timeout
 	ctx, cancel := context.WithCancel(git.DefaultContext)
 	defer cancel()
+
+	// Attempt to find a top-level .gitattributes and temporarily
+	// store in `info/attributes` within the bare repo
+	var gitAttrOut bytes.Buffer
+	gitAttrArgs := []string{"show", fmt.Sprintf("%s:.gitattributes", afterCommitID)}
+	gitAttrCmd := exec.CommandContext(ctx, git.GitExecutable, gitAttrArgs...)
+	gitAttrCmd.Dir = repoPath
+	gitAttrCmd.Stderr = os.Stderr
+	gitAttrCmd.Stdout = &gitAttrOut
+	err = gitAttrCmd.Run()
+	if err == nil {
+		gitAttrFile := fmt.Sprintf("%s/info/attributes", repoPath)
+		if err = ioutil.WriteFile(gitAttrFile, gitAttrOut.Bytes(), 0644); err != nil {
+			return nil, fmt.Errorf("GitAttrWrite: %v", err)
+		}
+		// Cleanup the file after we're finished diffing
+		defer os.Remove(gitAttrFile)
+	}
+
 	var cmd *exec.Cmd
 	if (len(beforeCommitID) == 0 || beforeCommitID == git.EmptySHA) && commit.ParentCount() == 0 {
 		diffArgs := []string{"diff", "--src-prefix=\\a/", "--dst-prefix=\\b/", "-M"}
